@@ -13,27 +13,38 @@ description: 山东电力实时市场数据一键工具。当用户提到"山东
 2. **数据产出**：按年生成 `山东电力_实时用电侧电价_{YEAR}.xlsx`，包含24小时电价
 3. **工作模式**：更新当年 / 提供历史 / 强制重跑
 
+## 固定路径（无需用户配置）
+
+所有数据存放在 skill 目录内：
+
+```
+$HOME/.claude/skills/sd-power-market/
+└── outputs/
+    ├── downloads/
+    │   ├── 2022/    ← PDF 日报文件
+    │   ├── 2023/
+    │   ├── 2024/
+    │   ├── 2025/
+    │   └── 2026/
+    └── excels/
+        ├── 山东电力_实时用电侧电价_2022.xlsx
+        ├── 山东电力_实时用电侧电价_2023.xlsx
+        ├── 山东电力_实时用电侧电价_2024.xlsx
+        ├── 山东电力_实时用电侧电价_2025.xlsx
+        └── 山东电力_实时用电侧电价_2026.xlsx
+```
+
+在脚本中始终使用以下变量：
+```
+SKILL_DIR   = $HOME/.claude/skills/sd-power-market
+SCRIPTS_DIR = $SKILL_DIR/scripts
+DOWNLOADS   = $SKILL_DIR/outputs/downloads
+EXCELS      = $SKILL_DIR/outputs/excels
+```
+
 ---
 
-## 第一步：配置检测
-
-配置文件路径：`~/.claude/sd-power-market.json`（Windows 为 `C:/Users/{用户名}/.claude/sd-power-market.json`）
-
-用 **Read 工具**读取该文件：
-- 若存在且含 `data_root`：直接使用
-- 若不存在或为空：询问用户：
-  > "请提供山东电力数据项目的根目录路径（含年份文件夹和 output/ 目录，例如 `D:/tools/pmos_shandong`）："
-
-  收到后用 **Write 工具**保存：
-  ```json
-  {
-    "data_root": "D:/tools/pmos_shandong"
-  }
-  ```
-
----
-
-## 第二步：意图识别
+## 意图识别
 
 | 意图 | 用户说的话（示例） | 执行路径 |
 |------|-----------------|---------|
@@ -49,90 +60,60 @@ description: 山东电力实时市场数据一键工具。当用户提到"山东
 
 ## 路径 A：爬取 + 提取
 
-### A1. 变量准备
-
-```
-SKILL_SCRIPTS  = $HOME/.claude/skills/sd-power-market/scripts
-DATA_ROOT      = {从配置读取}
-YEAR           = {解析到的年份}
-PDF_DIR        = {DATA_ROOT}/{YEAR}年山东电力交易每日快报
-OUTPUT_DIR     = {DATA_ROOT}/output
-```
-
-### A2. 确保 PDF 目录存在
+### A1. 创建目录
 
 ```bash
-mkdir -p "{PDF_DIR}"
+mkdir -p "$HOME/.claude/skills/sd-power-market/outputs/downloads/{YEAR}"
+mkdir -p "$HOME/.claude/skills/sd-power-market/outputs/excels"
 ```
 
-### A3. 下载 PDF（Bash 工具执行）
+### A2. 下载 PDF
 
 ```bash
 cd "$HOME/.claude/skills/sd-power-market/scripts"
 uv run python shandong_power_daily_crawler.py \
   -y {YEAR} \
-  -o "{PDF_DIR}"
+  -o "$HOME/.claude/skills/sd-power-market/outputs/downloads/{YEAR}"
 ```
 
 **若强制重跑**，末尾加 `--no-skip`。
 
-运行时告知用户"正在下载，请稍候..."，并显示实时进度。
+运行时告知用户"正在下载，请稍候..."。
 
-### A4. 提取电价数据（Bash 工具执行）
+### A3. 提取电价数据
 
 ```bash
 cd "$HOME/.claude/skills/sd-power-market/scripts"
 uv run python extract_realtime_price.py \
-  -i "{DATA_ROOT}" \
-  -o "{OUTPUT_DIR}" \
+  -i "$HOME/.claude/skills/sd-power-market/outputs/downloads" \
+  -o "$HOME/.claude/skills/sd-power-market/outputs/excels" \
   -y {YEAR}
 ```
 
-注意：`-i` 填项目根目录（非 PDF 子目录），脚本会递归搜索全部 PDF。
+注意：`-i` 指向 `downloads/` 根目录，脚本会递归搜索 `{YEAR}/` 子目录中的所有 PDF。
 
-### A5. 汇报结果
+### A4. 汇报结果
 
 从命令输出中提取关键信息，告知用户：
-- 本次新下载 PDF 数量（从爬虫日志读取）
-- Excel 文件位置：`{OUTPUT_DIR}/山东电力_实时用电侧电价_{YEAR}.xlsx`
-- 数据日期范围（从提取器日志读取）
+- 本次新下载 PDF 数量
+- Excel 文件位置：`~/.claude/skills/sd-power-market/outputs/excels/山东电力_实时用电侧电价_{YEAR}.xlsx`
+- 数据日期范围
 - 若有提取失败的天数，一并告知
 
 ---
 
 ## 路径 B：历史数据查询
 
-1. 检查文件是否存在（用 Bash 工具）：
+1. 检查文件是否存在：
    ```bash
-   ls "{OUTPUT_DIR}/山东电力_实时用电侧电价_{YEAR}.xlsx" 2>&1
+   ls "$HOME/.claude/skills/sd-power-market/outputs/excels/山东电力_实时用电侧电价_{YEAR}.xlsx" 2>&1
    ```
 
-2. **文件存在** → 直接告知用户：
-   > "{YEAR}年数据已就绪：`{OUTPUT_DIR}/山东电力_实时用电侧电价_{YEAR}.xlsx`"
-   > 询问是否需要更新到最新（追加最近缺失日期）
+2. **文件存在** → 直接告知用户路径，询问是否需要更新到最新
 
 3. **文件不存在** → 提示：
-   > "{YEAR}年数据尚未生成，是否现在生成？（需要下载约 {YEAR} 年全年 PDF，可能需要几分钟）"
+   > "{YEAR}年数据尚未生成，是否现在生成？"
    > 用户确认后进入路径 A
-
----
-
-## 目录结构参考
-
-```
-{DATA_ROOT}/
-├── 2022年山东电力交易每日快报/    ← PDF 文件
-├── 2023年山东电力交易每日快报/
-├── 2024年山东电力交易每日快报/
-├── 2025年山东电力交易每日快报/
-├── 2026年山东电力交易每日快报/
-└── output/
-    ├── 山东电力_实时用电侧电价_2022.xlsx
-    ├── 山东电力_实时用电侧电价_2023.xlsx
-    ├── 山东电力_实时用电侧电价_2024.xlsx
-    ├── 山东电力_实时用电侧电价_2025.xlsx
-    └── 山东电力_实时用电侧电价_2026.xlsx
-```
 
 ---
 
@@ -140,14 +121,12 @@ uv run python extract_realtime_price.py \
 
 | 错误场景 | 处理方式 |
 |---------|---------|
-| `uv` 未安装 | 提示用户安装：`pip install uv` 或查阅 https://docs.astral.sh/uv/ |
-| 网络超时 / API 无响应 | 告知用户网络问题，建议稍后重试；已下载的 PDF 不受影响（断点续传） |
-| PDF 目录不存在 | 自动创建后继续 |
+| `uv` 未安装 | 提示：`pip install uv` 或访问 https://docs.astral.sh/uv/ |
+| 网络超时 / API 无响应 | 告知网络问题，建议稍后重试；已下载 PDF 不受影响（断点续传） |
 | 提取失败天数较多 | 显示失败天数，告知可在 Excel "提取失败记录" Sheet 查看详情 |
-| 配置文件路径有误 | 提示用户重新提供 `data_root` 并更新配置 |
 
 ---
 
-## 安装与设置（新用户）
+## 安装说明（新用户）
 
-安装说明见 `references/setup.md`。
+详见 `references/setup.md`。
