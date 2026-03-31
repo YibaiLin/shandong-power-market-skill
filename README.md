@@ -14,7 +14,6 @@
 
 ### 前置要求
 
-- [Claude Code](https://claude.ai/code) 已安装
 - [uv](https://docs.astral.sh/uv/) 已安装
 
   ```bash
